@@ -1,0 +1,33 @@
+# Synthetic fixture for CI. Same table and column names as the real-data load.
+# pk / fk / cast describe the tables for staging and tests; the generator ignores them.
+seed: 101
+tables:
+  - name: customers
+    rows: 300
+    pk: customer_id
+    columns:
+      customer_id: {type: id, prefix: C}
+      customer_name: {type: id, prefix: "Customer "}
+      segment: {type: choice, values: [smb, mid_market, enterprise], p: [0.7, 0.22, 0.08]}
+      payment_terms_days: {type: choice, values: [15, 30, 45, 60], p: [0.2, 0.5, 0.2, 0.1]}
+  - name: invoices
+    rows: 3000
+    pk: invoice_id
+    fk: {customer_id: customers.customer_id}
+    cast: {invoice_date: date, due_date: date}
+    columns:
+      invoice_id: {type: id, prefix: INV}
+      customer_id: {type: fk, table: customers, column: customer_id}
+      invoice_date: {type: date, start: 2025-01-01, end: 2025-06-30}
+      due_date: {type: expr, expr: "df.invoice_date + pd.to_timedelta(df.customer_id.map(tables['customers'].set_index('customer_id').payment_terms_days).to_numpy(), unit='D')"}
+      amount_usd: {type: float, dist: lognormal, mean: 7.5, sigma: 1.0}
+  - name: payments
+    rows: 2400
+    pk: payment_id
+    fk: {invoice_id: invoices.invoice_id}
+    cast: {payment_date: date}
+    columns:
+      payment_id: {type: id, prefix: PAY}
+      invoice_id: {type: fk, table: invoices, column: invoice_id, unique: true}
+      payment_date: {type: expr, expr: "df.invoice_id.map(tables['invoices'].set_index('invoice_id').due_date) + pd.to_timedelta(rng.integers(-20, 40, n), unit='D')"}
+      amount_usd: {type: expr, expr: "np.round(df.invoice_id.map(tables['invoices'].set_index('invoice_id').amount_usd).to_numpy() * np.where(rng.random(n) < 0.85, 1.0, rng.uniform(0.3, 0.9, n)), 2)"}

@@ -1,0 +1,17 @@
+version: 2
+models:
+  - name: fct_ar_open_items
+    description: One row per invoice with open balance and aging bucket at var as_of_date.
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: aging_bucket
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [paid, current, 1-30, 31-60, 61-90, 90+]
+  - name: rpt_ar_aging
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [segment, aging_bucket]
