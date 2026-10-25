@@ -1,8 +1,20 @@
 version: 2
+
 sources:
-- name: bronze
-  description: Raw tables, loaded by the fixture generator (CI) or the real-data loaders.
-  tables:
-  - name: customers
-  - name: invoices
-  - name: payments
+  - name: bronze
+    description: Synthetic AR sub-ledger and GL written by ingestion/generate_ar.py.
+    tables:
+      - name: customer_history
+        description: One row per customer version (created, then any change to terms, segment or credit limit).
+      - name: invoices
+      - name: credit_notes
+      - name: disputes
+      - name: payments
+        loaded_at_field: loaded_at
+      - name: payment_applications
+        description: Cash application. A payment can be applied days after it arrives.
+        loaded_at_field: loaded_at
+      - name: fx_rates_monthly
+        description: Month-end USD rate per currency.
+      - name: gl_ar_balances
+        description: Month-end balance of the AR control account (1200) per currency.

@@ -1,34 +1,54 @@
 version: 2
+
 models:
-- name: stg_bronze__customers
-  columns:
-  - name: customer_id
+  - name: stg_ar__customer_history
     data_tests:
-    - unique
-    - not_null
-- name: stg_bronze__invoices
-  columns:
-  - name: invoice_id
+      - unique_combination:
+          arguments:
+            columns: [customer_id, valid_from]
+  - name: stg_ar__invoices
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests: [not_null]
+      - name: due_date
+        data_tests: [not_null]
+  - name: stg_ar__credit_notes
+    columns:
+      - name: credit_note_id
+        data_tests: [unique, not_null]
+      - name: invoice_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_ar__invoices')
+                field: invoice_id
+  - name: stg_ar__disputes
+    columns:
+      - name: dispute_id
+        data_tests: [unique, not_null]
+  - name: stg_ar__payments
+    columns:
+      - name: payment_id
+        data_tests: [unique, not_null]
+  - name: stg_ar__payment_applications
+    columns:
+      - name: application_id
+        data_tests: [unique, not_null]
+      - name: invoice_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_ar__invoices')
+                field: invoice_id
+  - name: stg_ref__fx_rates_monthly
     data_tests:
-    - unique
-    - not_null
-  - name: customer_id
+      - unique_combination:
+          arguments:
+            columns: [month_end, currency_code]
+  - name: stg_gl__ar_balances
     data_tests:
-    - not_null
-    - relationships:
-        arguments:
-          to: ref('stg_bronze__customers')
-          field: customer_id
-- name: stg_bronze__payments
-  columns:
-  - name: payment_id
-    data_tests:
-    - unique
-    - not_null
-  - name: invoice_id
-    data_tests:
-    - not_null
-    - relationships:
-        arguments:
-          to: ref('stg_bronze__invoices')
-          field: invoice_id
+      - unique_combination:
+          arguments:
+            columns: [month_end, account_code, currency_code]

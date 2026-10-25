@@ -1,5 +1,9 @@
-# Ingestion (roadmap)
+# Ingestion
 
-Loaders for the real data go here and write to the same `bronze` tables as the fixture.
+`generate_ar.py` writes a synthetic AR sub-ledger and GL into `bronze`. No public dataset has real
+receivables detail, so the generator is the data source at every scale:
 
-Synthetic customers, invoices and payments from a Python generator: partial payments, unapplied cash, disputes and mixed currencies. No public dataset has real AR detail, so the generator is the real-data path too. Scale it to 25k customers with `--scale`.
+- **Full (default):** 25,000 customers, Jan 2024 – Jun 2025: about 660k invoices and 650k payments, in about 8 s.
+- **CI:** `--customers 300 --start 2025-01-01`.
+
+Every behaviour that makes AR hard is simulated: payer profiles, partial payments, cash applied late, credit notes, disputes, bad-debt write-offs, customer changes, and payments that load days late. The generator's docstring lists them all.

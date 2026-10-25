@@ -3,4 +3,4 @@ dbt-duckdb>=1.9,<2.0
 duckdb>=1.1,<2.0
 pandas>=2.2
 numpy>=1.26
-pyyaml>=6.0
+# App (optional): pip install -r requirements-app.txt

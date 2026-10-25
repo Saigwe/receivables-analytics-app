@@ -1,17 +1,118 @@
 version: 2
+
 models:
-  - name: fct_ar_open_items
-    description: One row per invoice with open balance and aging bucket at var as_of_date.
+  - name: dim_month
+    columns:
+      - name: month_end
+        data_tests: [unique, not_null]
+
+  - name: dim_customer
+    description: Type-2 customer dimension (one row per version, valid_from to valid_to).
+    columns:
+      - name: customer_version_key
+        data_tests: [unique, not_null]
+
+  - name: fct_payment_application
+    description: One row per cash application. Incremental on loaded_at with a lookback.
+    columns:
+      - name: application_id
+        data_tests: [unique, not_null]
+      - name: application_lag_days
+        description: Days between cash arriving and being applied; above 0 means unapplied cash at some point.
+
+  - name: fct_invoice
+    description: One row per invoice with credits, cash applied, open amount and settlement date.
     columns:
       - name: invoice_id
         data_tests: [unique, not_null]
+      - name: amount_usd
+        data_tests: [not_null]
+
+  - name: fct_ar_month_end
+    description: One row per open invoice per month-end, with open balance and aging bucket.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [invoice_id, month_end]
+    columns:
       - name: aging_bucket
         data_tests:
           - accepted_values:
               arguments:
-                values: [paid, current, 1-30, 31-60, 61-90, 90+]
+                values: [current, 1-30, 31-60, 61-90, 91-120, 120+]
+
+  - name: fct_unapplied_cash_month_end
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [payment_id, month_end]
+
+  - name: rpt_ledger_tie
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [month_end, currency_code]
+
   - name: rpt_ar_aging
     data_tests:
       - unique_combination:
           arguments:
-            columns: [segment, aging_bucket]
+            columns: [month_end, segment, aging_bucket]
+
+  - name: rpt_ar_kpis
+    columns:
+      - name: month_end
+        data_tests: [unique, not_null]
+
+  - name: rpt_collections_worklist
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: customer_versions_close_the_day_before_the_next_change
+    model: dim_customer
+    given:
+      - input: ref('stg_ar__customer_history')
+        rows:
+          - {customer_id: C1, segment: smb, valid_from: 2024-01-01}
+          - {customer_id: C1, segment: mid_market, valid_from: 2024-07-15}
+          - {customer_id: C2, segment: smb, valid_from: 2023-05-01}
+    expect:
+      rows:
+        - {customer_id: C1, segment: smb, valid_from: 2024-01-01, valid_to: 2024-07-14, is_current: false}
+        - {customer_id: C1, segment: mid_market, valid_from: 2024-07-15, valid_to: 9999-12-31, is_current: true}
+        - {customer_id: C2, segment: smb, valid_from: 2023-05-01, valid_to: 9999-12-31, is_current: true}
+
+  - name: open_balance_and_bucket_follow_credits_and_cash_by_month_end
+    model: fct_ar_month_end
+    description: >
+      Invoice 100 on 10 Jan due 9 Feb; credit 10 on 20 Jan; 50 applied 15 Feb; 40 applied 5 Mar.
+      Open 90 (current) at Jan end, 40 (19 days past due) at Feb end, settled before Mar end.
+    given:
+      - input: ref('stg_ar__invoices')
+        rows:
+          - {invoice_id: I1, invoice_date: 2025-01-10, amount: 100}
+      - input: ref('stg_ar__credit_notes')
+        rows:
+          - {invoice_id: I1, issued_date: 2025-01-20, credit_amount: 10}
+      - input: ref('fct_payment_application')
+        rows:
+          - {invoice_id: I1, applied_date: 2025-02-15, applied_amount: 50}
+          - {invoice_id: I1, applied_date: 2025-03-05, applied_amount: 40}
+      - input: ref('fct_invoice')
+        rows:
+          - {invoice_id: I1, customer_id: C1, currency_code: USD, invoice_date: 2025-01-10, due_date: 2025-02-09, invoice_month_end: 2025-01-31, settled_date: 2025-03-05}
+      - input: ref('dim_month')
+        rows:
+          - {month_end: 2025-01-31}
+          - {month_end: 2025-02-28}
+          - {month_end: 2025-03-31}
+      - input: ref('stg_ref__fx_rates_monthly')
+        rows:
+          - {month_end: 2025-01-31, currency_code: USD, usd_per_unit: 1}
+          - {month_end: 2025-02-28, currency_code: USD, usd_per_unit: 1}
+    expect:
+      rows:
+        - {invoice_id: I1, month_end: 2025-01-31, open_amount: 90, days_past_due: -9, aging_bucket: current}
+        - {invoice_id: I1, month_end: 2025-02-28, open_amount: 40, days_past_due: 19, aging_bucket: 1-30}

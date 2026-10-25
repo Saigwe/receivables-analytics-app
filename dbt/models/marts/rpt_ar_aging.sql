@@ -1,10 +1,13 @@
--- AR aging by customer segment and bucket at as_of_date.
+-- AR aging in USD by month-end, customer segment (as it was at that month-end) and bucket.
 select
+    a.month_end,
     c.segment,
-    o.aging_bucket,
+    a.aging_bucket,
     count(*)                    as open_invoices,
-    sum(o.open_usd)             as open_usd
-from {{ ref('fct_ar_open_items') }} o
-join {{ ref('stg_bronze__customers') }} c on c.customer_id = o.customer_id
-where o.aging_bucket <> 'paid'
-group by 1, 2
+    count(distinct a.customer_id) as customers,
+    sum(a.open_usd)             as open_usd
+from {{ ref('fct_ar_month_end') }} a
+join {{ ref('dim_customer') }} c
+    on c.customer_id = a.customer_id
+    and a.month_end between c.valid_from and c.valid_to
+group by 1, 2, 3
