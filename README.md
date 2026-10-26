@@ -127,7 +127,7 @@ make fixture-all  # 300 customers, 6 months (CI)
 - [ ] Snowflake run (trial account), with runtime and credits; Streamlit in Snowflake version
 - [ ] Hosted demo on Streamlit Community Cloud, with app screenshots in this README
 - [ ] Cost per model from warehouse query history, and month-end close alerts to Slack
-- [ ] Design doc and a 3-minute Loom walkthrough
+- [ ] Design doc and a 3-minute Loom walkthrough ([script ready](docs/walkthrough.md))
 
 ## Interview topics this project prepares
 - Dimensional modelling: grain, point-in-time joins to a type-2 dimension
