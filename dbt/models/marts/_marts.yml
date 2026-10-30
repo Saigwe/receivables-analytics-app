@@ -69,6 +69,35 @@ models:
       - name: customer_id
         data_tests: [unique, not_null]
 
+  - name: fct_contact_phone
+    description: One row per CRM contact, with the number standardised to E.164 or the reason it can't be used.
+    columns:
+      - name: contact_id
+        data_tests: [unique, not_null]
+      - name: unusable_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['blank', 'no digits', 'wrong length for country', 'placeholder', 'invalid area code', 'invalid prefix']
+
+  - name: dim_customer_phone
+    description: Deduplicated usable numbers per customer; the primary is flagged, and numbers shared across customers are marked.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [customer_id, phone_e164]
+
+  - name: rpt_dunning_worklist
+    description: Customers to chase at the latest month-end, by tranche, targeting positive undisputed debt only.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: tranche
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['T1', 'T2', 'T3', 'T4']
+
 unit_tests:
   - name: customer_versions_close_the_day_before_the_next_change
     model: dim_customer

@@ -11,6 +11,7 @@ What it simulates
 - Customer changes over time (terms, segment, credit limit) for a type-2 customer dimension
 - Late-loading payments (0.5% load 3-10 days after receipt) to test the incremental model
 - Month-end GL AR control balance per currency, posted from the same events
+- Customer contact phone numbers as typed into a CRM, with an answer key of the correct E.164 number
 
 Usage
     python ingestion/generate_ar.py --db warehouse/receivables.duckdb                  # 25k customers, Jan 2024 - Jun 2025
@@ -60,6 +61,60 @@ def make_customers(rng, n: int, start: dt.date) -> pd.DataFrame:
         "segment": seg, "country_code": country, "currency_code": [COUNTRIES[c] for c in country],
         "payment_terms_days": terms, "credit_limit": limit, "created_at": created, "_profile": prof,
     })
+
+
+def make_contacts(rng, customers: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Contact phone numbers as a CRM holds them: 1-3 contacts per customer, typed in many formats.
+
+    Planted, with the answer key in answer_key.contact_numbers (its own random stream, so the ledger is unchanged):
+    - the same number typed differently across one customer's contacts (to deduplicate)
+    - ~1% of customers sharing a number with another customer, e.g. one outsourced accounts office (to flag, not merge)
+    - ~3% unusable entries: blanks, placeholders, too short, all one digit
+    """
+    def national(country):
+        if country in ("US", "CA"):
+            return f"{rng.integers(2, 10)}{rng.integers(0, 10)}{rng.integers(0, 10)}{rng.integers(200, 1000)}{rng.integers(0, 10000):04d}"
+        return f"4{rng.integers(0, 100):02d}{rng.integers(0, 1000000):06d}" if rng.random() < 0.7 \
+            else f"{rng.choice([2, 3, 7, 8])}{rng.integers(0, 100000000):08d}"
+
+    def e164(country, nat):
+        return ("+1" if country in ("US", "CA") else "+61") + nat
+
+    def typed(country, nat):
+        if country in ("US", "CA"):
+            a, b, c = nat[:3], nat[3:6], nat[6:]
+            forms = [f"({a}) {b}-{c}", f"{a}.{b}.{c}", f"+1 {a} {b} {c}", f"1-{a}-{b}-{c}", nat, f"001 {a} {b} {c}", f"{a}-{b}-{c} "]
+        else:
+            if nat[0] == "4":
+                forms = [f"0{nat[:3]} {nat[3:6]} {nat[6:]}", f"+61 {nat[:3]} {nat[3:6]} {nat[6:]}", f"61{nat}", f"0{nat}"]
+            else:
+                forms = [f"(0{nat[0]}) {nat[1:5]} {nat[5:]}", f"+61 {nat[0]} {nat[1:5]} {nat[5:]}", f"0{nat}"]
+        return forms[rng.integers(0, len(forms))]
+
+    ids = customers["customer_id"].to_numpy()
+    country = customers["country_code"].to_numpy()
+    own = {cid: national(c) for cid, c in zip(ids, country)}
+    sharers = rng.choice(len(ids), size=max(2, len(ids) // 100), replace=False)
+    for i in sharers:  # point the customer at another customer's number in the same country
+        same = np.flatnonzero(country == country[i])
+        j = same[rng.integers(0, len(same))]
+        if j != i:
+            own[ids[i]] = own[ids[j]]
+    rows, truth = [], []
+    roles = ["billing", "accounts_payable", "owner"]
+    for cid, c in zip(ids, country):
+        n = rng.choice([1, 2, 3], p=[0.5, 0.35, 0.15])
+        for k in range(n):
+            contact_id = f"{cid}-{k + 1}"
+            r = rng.random()
+            if r < 0.03:
+                raw, expected = rng.choice(["", "n/a", "000-000-0000", "12345", "TBC", "1111111111"]), None
+            else:
+                nat = own[cid] if (k == 0 or r < 0.75) else national(c)
+                raw, expected = typed(c, nat), e164(c, nat)
+            rows.append({"contact_id": contact_id, "customer_id": cid, "contact_role": roles[k], "raw_phone": raw})
+            truth.append({"contact_id": contact_id, "expected_e164": expected})
+    return pd.DataFrame(rows), pd.DataFrame(truth)
 
 
 def make_history(rng, customers: pd.DataFrame, start: dt.date, as_of: dt.date) -> pd.DataFrame:
@@ -227,11 +282,12 @@ def main() -> None:
     credits = pd.concat([credits, make_write_offs(unpaid, credits, as_of)], ignore_index=True)
     fx = make_fx(rng, args.start, args.as_of)
     gl = make_gl(inv, credits, payments, args.start, args.as_of)
+    contacts, contacts_truth = make_contacts(np.random.default_rng(args.seed + 1000), customers)
 
     tables = {
         "customer_history": history, "invoices": inv.drop(columns=["_profile"]), "credit_notes": credits,
         "disputes": disputes, "payments": payments, "payment_applications": apps, "fx_rates_monthly": fx,
-        "gl_ar_balances": gl,
+        "gl_ar_balances": gl, "customer_contacts": contacts,
     }
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(args.db) as con:
@@ -241,6 +297,10 @@ def main() -> None:
             con.execute(f"create or replace table bronze.{name} as select * from df")
             con.unregister("df")
             print(f"bronze.{name:<22} {len(df):>10,} rows")
+        con.execute("create schema if not exists answer_key")
+        con.register("df", contacts_truth)
+        con.execute("create or replace table answer_key.contact_numbers as select * from df")
+        con.unregister("df")
 
 
 if __name__ == "__main__":

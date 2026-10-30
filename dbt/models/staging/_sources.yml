@@ -18,3 +18,9 @@ sources:
         description: Month-end USD rate per currency.
       - name: gl_ar_balances
         description: Month-end balance of the AR control account (1200) per currency.
+      - name: customer_contacts
+        description: Contact phone numbers as typed into the CRM, 1-3 per customer.
+  - name: answer_key
+    description: The correct E.164 number for each contact (null when the entry is unusable). Used only by tests.
+    tables:
+      - name: contact_numbers
